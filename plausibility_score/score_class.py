@@ -1,12 +1,6 @@
 import numpy as np
+from scipy.stats import norm, t as student_t, chi2, f as fdist
 
-try:
-    from scipy.stats import norm, t as student_t
-except Exception as e:
-    raise ImportError(
-        "This module requires SciPy (scipy.stats.norm and scipy.stats.t). "
-        "Install with: pip install scipy"
-    )
 
 class PlausibilityStress:
     """
@@ -186,3 +180,37 @@ class PlausibilityStress:
 
         return S_star_meta, q_meta
 
+    def implied_alpha_portfolio(self, S, P):
+        """Quantile level α of the portfolio loss implied by scenario S."""
+        S = np.asarray(S, float).reshape(-1)
+        P = np.asarray(P, float).reshape(-1)
+        if S.shape != (self.n,) or P.shape != (self.n,):
+            raise ValueError("Shapes must be (n,).")
+        q_obs = - float(P @ S)                      # positive loss
+        scale = np.sqrt(float(P @ self.Sigma @ P))  # sqrt(P'ΣP)
+        z = q_obs / scale
+        if self.dist == "gaussian":
+            return float(norm.cdf(z))
+        elif self.dist == "student":
+            if not self.df:
+                raise ValueError("df required for Student-t.")
+            return float(student_t.cdf(z, df=self.df))
+        else:
+            raise ValueError("Unsupported dist.")
+
+    def implied_alpha_joint(self, S):
+        """Joint (elliptical) α of the vector S via the radial distribution."""
+        S = np.asarray(S, float).reshape(-1)
+        if S.shape != (self.n,):
+            raise ValueError("S must have shape (n,).")
+        # r^2 = S' Σ^{-1} S via Cholesky
+        y = np.linalg.solve(self._chol, S)
+        r2 = float(y @ y)
+        if self.dist == "gaussian":
+            return float(chi2.cdf(r2, df=self.n))
+        elif self.dist == "student":
+            if not self.df:
+                raise ValueError("df required for Student-t.")
+            return float(fdist.cdf(r2 / self.n, dfn=self.n, dfd=self.df))
+        else:
+            raise ValueError("Unsupported dist.")
